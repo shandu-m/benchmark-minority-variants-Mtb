@@ -1,0 +1,156 @@
+---
+title: "benchmarking_filter_FB_SNP_variants"
+output: html_document
+date: "2026-01-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library("lme4")
+library("caret")
+library("pROC")
+library("ggplot2")
+library("broom")
+library("broom.mixed")
+```
+
+# Linear mixed model
+
+Here we predict true variants from a set of candidate variants. The model used for these predictions was built by Sanjana Kulkarni. Ground truth variant data was determined from PacBio long-read alignment to personalized reference genomes for a set of isolates. The model was trained on the Illumina short-read alignments to H37Rv for this same set of isolates.
+
+A predicted value cutoff of 0.46 was determined by Sanjana to be optimal for classifying variants as true or false, based on maximizing the sum of sensitivity and precision.
+
+The model makes predictions based on the following predictors:
+
+* Ratio of total coverage at site to maximum of rolling average from left/right.
+* Number of soft-clipped bases at each position, normalized by coverage.
+* Number of discordantly paired reads (non-LR reads) at each site, normalized by coverage.
+* Average base quality of bases supporting the variant allele.
+* Strand bias (deviation of the proportion of forward reads out of the total reads from 0.5).
+
+The odds ratios for likelihood of a variant being true versus false for each predictor are:
+```{r model, echo=FALSE, warning=FALSE}
+model_dir <- "/home/sm624/projects/mixed_calls/filtering_FB_variants/model"
+
+load(paste(model_dir, "/linear_mixed_model.RData", sep=""))
+```
+
+```{r model_predictors, echo=FALSE, warning=FALSE}
+tidy_model <- tidy(model, effects = "fixed", conf.int = TRUE, conf.method = "Wald", exponentiate = TRUE)
+
+term_labels <- c(
+  "COV_RATIO" = "Coverage Ratio",
+  "CLIPPED_BASES_RATIO" = "Clipped Bases Ratio",
+  "DISCORDANT_READS_RATIO" = "Discordant Reads Ratio",
+  "SAF_prop_deviation_from_half" = "Deviation from 50% Forward Reads",
+  "Mean_BQ_ALT_Allele" = "Average Base Quality",
+  "(Intercept)" = "Sample Random Effect"
+)
+
+model_plot = ggplot(tidy_model, aes(x = estimate, y = term)) +
+  geom_point(size = 3) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), width = 0.2) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "grey40") +
+  scale_x_log10() +
+  scale_y_discrete(labels = term_labels) +  # <--- change labels here
+  theme_minimal() +
+  labs(x = "Odds Ratio (95% CI)", y = NULL)
+
+plot(model_plot)
+
+ggsave(paste(model_dir, "/forest_plot.svg", sep=""), plot = plot, width = 6, height = 4, dpi = 300)
+```
+
+# Predictions
+```{r model_data}
+predictors <- c("COV_RATIO", "CLIPPED_BASES_RATIO", "DISCORDANT_READS_RATIO", "Mean_BQ_ALT_allele", "SAF_prop_deviation_from_half")
+
+best_threshold = 0.46
+```
+
+```{r source_data}
+load(paste(model_dir, "/X_train_mean.RData", sep=""))
+load(paste(model_dir, "/X_train_sd.RData", sep=""))
+```
+
+## ISS H37Rv
+```{r load_data_ISS_H37Rv}
+project_dir <- "/n/scratch/users/s/sm624/FP_characteristics/ISS_H37Rv"
+
+data_df <- read.csv(paste(project_dir, "/candidate_SNP_variants.csv", sep=""))
+
+data_X <- data_df[, predictors]
+data_samples <- data_df[['tag']]
+```
+
+```{r scale_data_ISS_H37Rv}
+data_X_scaled <- as.data.frame(scale(data_X, center = X_train_mean, scale = X_train_sd))
+
+df_data_scaled = cbind(data_X_scaled, tag = data_samples)
+```
+
+```{r predict_ISS_H37Rv}
+# get predictions on the training set. re.form = NA ignores random effects. Needed if you have some samples in the validation data not in the training data
+data_df$predicted <- predict(model, newdata = df_data_scaled, re.form = NA, type = "response")
+
+# add the binary predictions, binarized at the best_threshold
+data_df$pred_class <- ifelse(data_df$predicted >= best_threshold, 1, 0)
+
+# save
+write.csv(data_df, paste(project_dir, "/variant_SNP_predictions.csv", sep=""), quote = FALSE, row.names = FALSE)
+```
+
+## ISS L1234
+```{r load_data_ISS_L1234}
+project_dir <- "/n/scratch/users/s/sm624/FP_characteristics/ISS_L1234"
+
+data_df <- read.csv(paste(project_dir, "/candidate_SNP_variants.csv", sep=""))
+
+data_X <- data_df[, predictors]
+data_samples <- data_df[['tag']]
+```
+
+```{r scale_data_ISS_L1234}
+data_X_scaled <- as.data.frame(scale(data_X, center = X_train_mean, scale = X_train_sd))
+
+df_data_scaled = cbind(data_X_scaled, tag = data_samples)
+```
+
+```{r predict_ISS_L1234}
+# get predictions on the training set. re.form = NA ignores random effects. Needed if you have some samples in the validation data not in the training data
+data_df$predicted <- predict(model, newdata = df_data_scaled, re.form = NA, type = "response")
+
+# add the binary predictions, binarized at the best_threshold
+data_df$pred_class <- ifelse(data_df$predicted >= best_threshold, 1, 0)
+
+# save
+write.csv(data_df, paste(project_dir, "/variant_SNP_predictions.csv", sep=""), quote = FALSE, row.names = FALSE)
+```
+
+## BinoSNP data
+```{r load_data_BSdata}
+project_dir <- "/n/scratch/users/s/sm624/FP_characteristics/BSdata"
+
+data_df <- read.csv(paste(project_dir, "/candidate_SNP_variants.csv", sep=""))
+
+data_X <- data_df[, predictors]
+data_samples <- data_df[['tag']]
+```
+
+```{r scale_data_ISS_L1234}
+data_X_scaled <- as.data.frame(scale(data_X, center = X_train_mean, scale = X_train_sd))
+
+df_data_scaled = cbind(data_X_scaled, tag = data_samples)
+```
+
+```{r predict_ISS_L1234}
+# get predictions on the training set. re.form = NA ignores random effects. Needed if you have some samples in the validation data not in the training data
+data_df$predicted <- predict(model, newdata = df_data_scaled, re.form = NA, type = "response")
+
+# add the binary predictions, binarized at the best_threshold
+data_df$pred_class <- ifelse(data_df$predicted >= best_threshold, 1, 0)
+
+# save
+write.csv(data_df, paste(project_dir, "/variant_SNP_predictions.csv", sep=""), quote = FALSE, row.names = FALSE)
+```
