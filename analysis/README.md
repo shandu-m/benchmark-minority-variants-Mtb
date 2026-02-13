@@ -25,3 +25,5 @@ Each of the above notebooks has a corrsponding source notebook in which data tab
 - `METHODS_real_variant_analysis.ipynb`: analysis of variants called by all tools in a set of clinical isolates.
 
 Analysis for Supplementary Results A is in `0_simulated_data_statistics.ipynb`. Analysis for Supplementary Results D is in `METHODS_real_variant_analysis.ipynb`.
+
+The `data` folder contains files used for annotating genomic regions according to drug resistance (DR), homopolymer tract (HT) and low mappability (LM) regions. The `LM_pos_list.pkl` file corrresponds to the candidate positions used for LM variant simulation. The `L1234.H37Rv.pupmapper.indelHomologRegions.RLC.geneHomologs.first500bp.bed` file corresponds to the comprehensive low mappability regions used for false positive characterization and region masking for variant filtering.
